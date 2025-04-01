@@ -11,20 +11,35 @@ const elements = {
     copyToDraftButton: $('copyToDraftButtonHimitsuCreator'),
     exportButton: $('exportPresentationButtonHimitsuCreator')
 };
-
-// Shared message sending function
-const sendMessage = async (content, output) => {
-    if (output) output.value = '';
-    await messageManagerInstance.sendMessage(content, false, '', '/message', true, true, output);
-};
-
-// Event handlers
-const sendRequest = () => sendMessage(elements.workArea.value, elements.outputArea);
+// Simplified event handlers
 const copyToDraft = () => elements.draftArea.value = elements.outputArea.value;
 
+// Alternative approach
+function sendNaked() {
+    // Send request to the backend API
+    fetch(`/extension`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          message: elements.workArea.value
+        })
+      })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error('Network response was not ok');
+        }
+        return response.json();
+      })
+      .then(data => {
+        elements.outputArea.value = data.response;
+      })
+  }
+
 // Attach event listeners
-elements.sendButton.addEventListener('click', sendRequest);
 elements.copyToDraftButton.addEventListener('click', copyToDraft);
+elements.sendButton.addEventListener('click', sendNaked);
 
 // Markdown Renderer Setup
 marked.setOptions({
@@ -34,21 +49,42 @@ marked.setOptions({
 
 // Load and render markdown on load
 window.onload = () => {
-    const saved = localStorage.getItem('presentationMarkdown');
-    if (saved) elements.workArea.value = saved;
+    // Load all saved content
+    const savedPresentation = localStorage.getItem('presentationMarkdown');
+    if (savedPresentation) elements.workArea.value = savedPresentation;
+
+    const savedDraft = localStorage.getItem('draftAreaContent');
+    if (savedDraft) elements.draftArea.value = savedDraft;
+
+    const savedOutput = localStorage.getItem('outputAreaContent');
+    if (savedOutput) elements.outputArea.value = savedOutput;
+
     renderPreview();
 };
 
 // Markdown Event Listeners
 elements.saveButton.addEventListener('click', () => {
+    // Save all three text areas to localStorage
     localStorage.setItem('presentationMarkdown', elements.workArea.value);
-    alert('Presentation saved!');
+    localStorage.setItem('draftAreaContent', elements.draftArea.value);
+    localStorage.setItem('outputAreaContent', elements.outputArea.value);
+    alert('All content saved!');
 });
+
 elements.clearButton.addEventListener('click', () => {
-    elements.workArea.value = '';
-    elements.outputArea.innerHTML = '';
-    localStorage.removeItem('presentationMarkdown');
+    if (confirm('Are you sure you want to clear all content?')) {
+        elements.workArea.value = '';
+        elements.draftArea.value = '';
+        elements.outputArea.value = '';
+        elements.presentationPreview.innerHTML = '';
+
+        // Clear all stored content
+        localStorage.removeItem('presentationMarkdown');
+        localStorage.removeItem('draftAreaContent');
+        localStorage.removeItem('outputAreaContent');
+    }
 });
+
 elements.workArea.addEventListener('input', renderPreview);
 
 // Render markdown preview

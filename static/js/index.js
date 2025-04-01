@@ -317,10 +317,10 @@ class messageManager {
     // Add these methods to the messageManager class
 deleteMessage(messageId) {
     if (!confirm('Are you sure you want to delete this message?')) return;
-    
+
     const messageElement = document.getElementById(messageId);
     if (!messageElement) return;
-    
+
     // Find the index of this message in chat history
     fetch('/history', {
         method: 'POST',
@@ -345,7 +345,7 @@ deleteMessage(messageId) {
     regenerateMessage(messageId) {
         const messageElement = document.getElementById(messageId);
         if (!messageElement) return;
-        
+
         // Find the message content
         let messageText = messageElement.textContent.trim();
         // Remove the text from action buttons if present
@@ -353,7 +353,7 @@ deleteMessage(messageId) {
         if (actionButtonsText) {
             messageText = messageText.replace(actionButtonsText, '').trim();
         }
-        
+
         // Remove all messages after this one
         let next = messageElement.nextElementSibling;
         const removedMessages = [];
@@ -363,7 +363,7 @@ deleteMessage(messageId) {
             next = next.nextElementSibling;
             temp.remove();
         }
-        
+
         // Send message to regenerate response
         const userMsg = { 
             name: 'User', 

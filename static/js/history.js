@@ -2,7 +2,6 @@ config_data = {
     "ai": {
         "names": ["Yuki", "Yuna"],
         "himitsu": false,
-        "agi": false,
         "emotions": false,
         "miru": false,
         "audio": false,
@@ -27,14 +26,16 @@ config_data = {
     },
     "server": {
         "url": "",
-        "yuna_default_model": "lib/models/yuna/yuna-ai-v4-q5_k_m.gguf",
-        "miru_default_model": ["yuna-ai-miru-v0.gguf", "yuna-ai-miru-eye-v0.gguf"],
-        "voice_default_model": "yuna-ai-voice-v1",
-        "voice_model_config": ["YunaAi.ckpt", "YunaAi.pth"],
+        "yuna_default_model": "lib/models/yuna/yuna-ai-v4-miru-mlx",
+        "miru_default_model": ["lib/models/yuna/yuna-ai-v4-miru-q5_k_m.gguf", "lib/models/yuna/yuna-ai-v4-miru-eye-q5_k_m.gguf"],
+        "yuna_himitsu_model": "lib/models/yuna/himitsu-v1-mlx",
+        "voice_default_model": "lib/models/agi/hanasu/yuna-ai-voice-v1",
+        "voice_model_config": ["G_108000.pth", "config.json"],
         "device": "mps",
-        "yuna_text_mode": "koboldcpp",
-        "yuna_miru_mode": "moondream",
-        "yuna_audio_mode": "siri",
+        "yuna_text_mode": "mlxvlm",
+        "yuna_himitsu_mode": "mlx",
+        "yuna_miru_mode": "mlxvlm",
+        "yuna_audio_mode": "hanasu",
         "yuna_reference_audio": "static/audio/reference.wav"
     },
     "settings": {
@@ -70,9 +71,9 @@ class ChatHistoryManager {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ task: 'list' })
             });
-            
+
             if (!response.ok) throw new Error(`Error fetching chats: ${response.statusText}`);
-            
+
             const data = await response.json();
             this.chats = data.history || data;
             return this.chats;
@@ -87,7 +88,7 @@ class ChatHistoryManager {
     async createHistoryFile() {
         const newFileName = prompt('Enter a name for the new file (with .json):');
         if (!newFileName) return;
-        
+
         try {
             await this.postHistory('create', { chat: newFileName });
             await populateHistorySelect();
@@ -106,7 +107,7 @@ class ChatHistoryManager {
             if (chatContainer) {
                 chatContainer.innerHTML = '';
             }
-            
+
             if (Array.isArray(data)) {
                 data.forEach(message => {
                     // Ensure data field is present
@@ -114,9 +115,9 @@ class ChatHistoryManager {
                     messageManagerInstance.renderMessage(message);
                 });
             }
-            
+
             this.selectedFilename = filename;
-            
+
             if (typeof updateMsgCount === 'function') {
                 updateMsgCount();
             }
@@ -161,7 +162,7 @@ class ChatHistoryManager {
     // Rename a chat history file
     async renameChat(oldName, newName) {
         if (!newName) return;
-        
+
         try {
             await this.postHistory('rename', { 
                 chat: oldName,

@@ -24,7 +24,7 @@ toolbox.router.get('/*', toolbox.networkFirst, {
 // sw.js
 self.addEventListener('push', function(event) {
     console.log('Push received:', event);
-    
+
     let payload;
     try {
         payload = event.data.json();
@@ -34,7 +34,7 @@ self.addEventListener('push', function(event) {
             body: event.data ? event.data.text() : 'No payload'
         };
     }
-    
+
     const options = {
         body: payload.body,
         icon: payload.icon || '/static/img/yuna-ai.png',

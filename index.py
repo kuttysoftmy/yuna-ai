@@ -9,6 +9,9 @@ from itsdangerous import URLSafeTimedSerializer
 from flask_compress import Compress
 from aiflow import agi, history
 from pywebpush import webpush
+import logging
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.ERROR)
 config =  agi.get_config()
 secret_key = config['security']['secret_key']
 serializer = URLSafeTimedSerializer(secret_key)
@@ -38,6 +41,7 @@ class YunaServer:
         self.worker = agi.AGIWorker(config)
         self.worker.start()
         self.app.errorhandler(404)(self.page_not_found)
+        self.users_cache = None
 
         @self.app.after_request
         def add_cors_headers(response):
@@ -46,7 +50,10 @@ class YunaServer:
             response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
             return response
 
-        def add_cache_headers(response): response.headers['Cache-Control'] = 'public, max-age=300' if response.status_code < 400 else response.headers.get('Cache-Control', ''); return response
+        @self.app.after_request
+        def add_cache_headers(response):
+            #if request.path.startswith('/static/'): response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+            return response
 
     @staticmethod
     def page_not_found(self): return f'This page does not exist.', 404
@@ -55,13 +62,21 @@ class YunaServer:
     class User(UserMixin):
         def __init__(self, id=None):
             self.id = id
+
     @login_manager.user_loader
     def user_loader(self, user_id):
-        if user_id in self.read_users():
-            return self.User(id=user_id)
+        if user_id in self.read_users(): return self.User(id=user_id)
         return None
-    def read_users(self): return json.load(open('db/admin/users.json', 'r')) if os.path.exists('db/admin/users.json') else {}
-    def write_users(self, users): json.dump(users, open('db/admin/users.json', 'w'))
+
+    def read_users(self):
+        if self.users_cache is not None: return self.users_cache
+        users_file = 'db/admin/users.json'
+        self.users_cache = json.load(open(users_file, 'r')) if os.path.exists(users_file) else {}
+        return self.users_cache
+
+    def write_users(self, users):
+        self.users_cache = users
+        json.dump(users, open('db/admin/users.json', 'w'))
 
     def configure_routes(self):
         self.app.route('/', methods=['GET', 'POST'])(self.main)
@@ -78,7 +93,6 @@ class YunaServer:
         self.app.route('/search', methods=['POST'], endpoint='search')(lambda: handle_search_request(self.worker))
         self.app.route('/subscribe', methods=['POST'], endpoint='subscribe')(lambda: subscribe())
         self.app.route('/send-notification', methods=['POST'], endpoint='send_notification')(lambda: send_notification())
-        self.app.route('/extension', methods=['POST'], endpoint='extension')(lambda: handle_extension(self.worker, config))
 
     def custom_static(self, filename): return send_from_directory(self.app.static_folder, 'static/' + filename if not filename.startswith(('static/', '/favicon.ico', '/manifest.json')) else filename)
     def image_pwa(self): return send_from_directory(self.app.static_folder, 'img/yuna-ai.png')
@@ -186,17 +200,12 @@ def handle_message_request(worker, chat_history_manager, config):
             print("Response text:", response_text)
             if useHistory:
                 update_chat_history(chat_history_manager, user_id, chat_id, text, response_text, config, messageId)
-                if speech:
-                    if kanojo:
-                        chat_history_manager.generate_speech(response_text)
-                    else:
-                        worker.speak_text(response_text)
+                if speech: worker.speak_text(response_text)
         return Response(generate_stream(), mimetype='text/plain')
     else:
         if useHistory:
             update_chat_history(chat_history_manager, user_id, chat_id, text, response, config, messageId)
-            if speech:
-                worker.speak_text(response)
+            if speech: worker.speak_text(response)
         print("Response:", response)
         return jsonify({'response': response})
 
@@ -222,16 +231,12 @@ def handle_image_request(worker, chat_history_manager, config):
 
     if data.get('task') == 'caption' and 'image' in data:
         image_path = f"static/img/call/{data.get('name')}.png"
-        with open(image_path, "wb") as file:
-            file.write(base64.b64decode(re.sub('^data:image/.+;base64,', '', data['image'])))
-
+        with open(image_path, "wb") as file: file.write(base64.b64decode(re.sub('^data:image/.+;base64,', '', data['image'])))
         image_message, image_path_resp = worker.capture_image(image_path=image_path, prompt=data.get('message'))
 
         if use_history:
-            chat_history_message = f"{data.get('message')}<img src='/static/img/call/{data.get('name')}.png' class='image-message'>"
-            update_chat_history(chat_history_manager, current_user.get_id(), chat_id, chat_history_message, image_message, config, message_id)
-            if speech:
-                worker.speak_text(image_message)
+            update_chat_history(chat_history_manager, current_user.get_id(), chat_id, f"{data.get('message')}<img src='/static/img/call/{data.get('name')}.png' class='image-message'>", image_message, config, message_id)
+            if speech: worker.speak_text(image_message)
 
         return jsonify({'message': image_message, 'path': image_path_resp})
     return jsonify({'error': 'Invalid task parameter'}), 400
@@ -246,10 +251,7 @@ def handle_search_request(worker):
     process_data = data.get('processData', False)
     answer, search_results, image_urls = worker.web_search(search_query)
 
-    return jsonify({
-        'message': [answer, search_results],
-        'images': image_urls
-    })
+    return jsonify({'message': [answer, search_results], 'images': image_urls})
 
 @login_required
 def handle_textfile_request(chat_generator):
@@ -279,27 +281,7 @@ def send_notification():
                 vapid_claims=VAPID_CLAIMS
             )
         return jsonify({'success': True})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
-
-def handle_extension(worker, config):
-    data = request.get_json()
-    user_message = data.get('message', '')
-    response = worker.generate_text(user_message, "", "", False, config, False)
-
-    if False:
-        def generate_stream():
-            response_text = ''
-            for chunk in response:
-                response_text += chunk
-                yield chunk
-            print("Response text:", response_text)
-        return Response(generate_stream(), mimetype='text/plain')
-    else:
-        return jsonify({
-            'status': 'success',
-            'response': response
-        })
+    except Exception as e: return jsonify({'success': False, 'error': str(e)})
 
 app = YunaServer().app
 if __name__ == '__main__': app.run(host='0.0.0.0', port=4848, ssl_context=('lib/cert.pem', 'lib/key.pem'))
